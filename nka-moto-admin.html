@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nka Moto Admin</title>
+  <style>
+    :root { --green:#0B6E4F; --navy:#12263A; --bg:#F7F5F0; --red:#C1121F; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:#1a1a1a; }
+    header { background:var(--navy); color:#fff; padding:16px 24px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+    nav { display:flex; gap:8px; flex-wrap:wrap; }
+    button, .btn { border:0; background:var(--green); color:#fff; padding:10px 14px; border-radius:8px; cursor:pointer; font:inherit; }
+    button.ghost { background:transparent; border:1px solid #fff; }
+    button.linkish { background:#fff; color:var(--navy); border:1px solid #ddd; }
+    main { padding:24px; max-width:1100px; margin:0 auto; }
+    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
+    .card { background:#fff; padding:16px; border-radius:12px; }
+    .stat { text-align:left; width:100%; border:1px solid #eee; }
+    .stat:hover { border-color:var(--green); }
+    .stat .ico { font-size:22px; display:block; }
+    .stat small { color:#555; display:block; margin-top:4px; }
+    .badge { display:inline-block; min-width:18px; padding:1px 6px; margin-left:6px; border-radius:99px; background:#C1121F; color:#fff; font-size:12px; }
+    table { width:100%; border-collapse:collapse; background:#fff; }
+    th, td { text-align:left; padding:10px; border-bottom:1px solid #eee; vertical-align:top; }
+    input { width:100%; padding:10px; margin:6px 0 12px; }
+    .hidden { display:none; }
+    .ok { color:var(--green); }
+    .warn { color:var(--red); }
+    .err { background:#fde8ea; color:#7a1020; padding:12px; border-radius:8px; margin:12px 0; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:99px; background:#eee; font-size:12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Nka Moto · Admin</strong>
+    <nav id="nav" class="hidden">
+      <button type="button" data-go="dash">Tableau</button>
+      <button type="button" data-go="pending">Pending <span id="badgePending" class="badge hidden">0</span></button>
+      <button type="button" data-go="alerts">Alertes <span id="badgeAlerts" class="badge hidden">0</span></button>
+      <button type="button" data-go="users">Users</button>
+      <button type="button" data-go="motos">Motos</button>
+      <button type="button" class="ghost" id="logoutBtn">Se déconnecter</button>
+    </nav>
+  </header>
+  <main>
+    <section id="login">
+      <div class="card" style="max-width:420px">
+        <h2>Connexion admin</h2>
+        <label>Identifiant professionnel</label>
+        <input id="proId" value="ADM-0001" />
+        <label>Mot de passe</label>
+        <input id="pass" type="password" />
+        <button type="button" id="loginBtn">Entrer</button>
+        <p id="loginErr" class="warn"></p>
+      </div>
+    </section>
+    <section id="dash" class="hidden">
+      <h2>Tableau de bord</h2>
+      <p>Clique une carte pour voir la liste.</p>
+      <div id="dashErr"></div>
+      <div class="cards" id="stats"></div>
+    </section>
+    <section id="list" class="hidden">
+      <button type="button" class="linkish" id="backBtn">← Retour au tableau de bord</button>
+      <h2 id="listTitle">Liste</h2>
+      <div id="listErr"></div>
+      <div id="listBox"></div>
+    </section>
+    <section id="pending" class="hidden">
+      <button type="button" class="linkish" data-go="dash">← Retour au tableau de bord</button>
+      <h2>Signalements en attente</h2>
+      <div id="pendingBox"></div>
+    </section>
+    <section id="alerts" class="hidden">
+      <button type="button" class="linkish" data-go="dash">← Retour au tableau de bord</button>
+      <h2>Alertes</h2>
+      <div id="alertsBox"></div>
+    </section>
+    <section id="users" class="hidden">
+      <button type="button" class="linkish" data-go="dash">← Retour au tableau de bord</button>
+      <h2>Utilisateurs</h2>
+      <div class="card">
+        <h3>Créer un agent</h3>
+        <input id="aName" placeholder="Nom" />
+        <input id="aPro" placeholder="Identifiant pro" />
+        <input id="aPhone" placeholder="Telephone +223..." />
+        <input id="aPass" placeholder="Mot de passe temporaire" />
+        <button type="button" id="createBtn">Créer</button>
+        <p id="createMsg"></p>
+      </div>
+      <div id="usersBox"></div>
+    </section>
+    <section id="userDetail" class="hidden">
+      <button type="button" class="linkish" data-go="users">← Retour aux utilisateurs</button>
+      <h2 id="userTitle">Fiche utilisateur</h2>
+      <div id="userErr"></div>
+      <div id="userBox"></div>
+    </section>
+  </main>
+  <script>
+    const API = 'http://localhost:3000';
+    let token = localStorage.getItem('nka_admin_token');
+
+    function headers() {
+      return { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+    }
+    function show(id) {
+      ['login','dash','list','pending','alerts','users','userDetail'].forEach(function (s) {
+        document.getElementById(s).classList.add('hidden');
+      });
+      document.getElementById(id).classList.remove('hidden');
+      if (location.hash !== '#' + id) location.hash = id;
+    }
+    function text(v) {
+      return String(v == null ? '' : v);
+    }
+    async function api(path, options) {
+      const res = await fetch(API + path, options || { headers: headers() });
+      const data = await res.json().catch(function () { return {}; });
+      if (res.status === 401) {
+        localStorage.removeItem('nka_admin_token');
+        token = null;
+        document.getElementById('nav').classList.add('hidden');
+        show('login');
+        document.getElementById('loginErr').textContent = 'Session expirée. Reconnecte-toi.';
+        throw new Error('Session expirée');
+      }
+      if (!res.ok) {
+        throw new Error(data.message || ('Erreur ' + res.status));
+      }
+      return data;
+    }
+    async function login() {
+      document.getElementById('loginErr').textContent = '';
+      try {
+        const res = await fetch(API + '/auth/authority/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            professionalId: document.getElementById('proId').value,
+            password: document.getElementById('pass').value
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          document.getElementById('loginErr').textContent = data.message || 'Echec';
+          return;
+        }
+        if (!data.user || data.user.role !== 'ADMIN') {
+          document.getElementById('loginErr').textContent = 'Compte admin requis';
+          return;
+        }
+        token = data.accessToken;
+        localStorage.setItem('nka_admin_token', token);
+        document.getElementById('nav').classList.remove('hidden');
+        loadDash();
+      } catch (e) {
+        document.getElementById('loginErr').textContent = 'API injoignable. Lance npm run start:dev';
+      }
+    }
+    function logout() {
+      localStorage.removeItem('nka_admin_token');
+      token = null;
+      document.getElementById('nav').classList.add('hidden');
+      show('login');
+    }
+    function setBadge(id, n) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const count = Number(n) || 0;
+      el.textContent = String(count);
+      el.classList.toggle('hidden', count < 1);
+    }
+    async function loadDash() {
+      document.getElementById('dashErr').innerHTML = '';
+      try {
+        const s = await api('/admin/dashboard');
+        const cards = [
+          ['👤', 'Users', s.users, 'Tous les comptes', 'users'],
+          ['🏍️', 'Motos', s.motosActives, 'Toutes les motos actives', 'motos'],
+          ['🔴', 'En recherche', s.motosEnRecherche, 'Motos signalées volées', 'stolen'],
+          ['✅', 'Retrouvées', s.motosRetrouvees, 'Motos retrouvées', 'recovered'],
+          ['⏳', 'Pending', s.signalementsEnAttente, 'Signalements à valider', 'pending'],
+          ['🔔', 'Alertes', s.alertesNonLues, 'Alertes non lues', 'alerts']
+        ];
+        document.getElementById('stats').innerHTML = cards.map(function (c) {
+          return '<button type="button" class="card stat" data-go="' + c[4] + '"><span class="ico">' + c[0] + '</span><b>' + (c[2] == null ? '-' : c[2]) + '</b>' + c[1] + '<small>' + c[3] + '</small></button>';
+        }).join('');
+        setBadge('badgePending', s.signalementsEnAttente);
+        setBadge('badgeAlerts', s.alertesNonLues);
+        show('dash');
+      } catch (e) {
+        document.getElementById('dashErr').innerHTML = '<div class="err">' + text(e.message) + '</div>';
+        show('dash');
+      }
+    }
+    function go(key) {
+      if (key === 'dash') return loadDash();
+      if (key === 'users') return loadUsers();
+      if (key === 'userDetail') return;
+      if (key === 'pending') return loadPending();
+      if (key === 'alerts') return loadAlerts();
+      if (key === 'motos') return loadMotos();
+      if (key === 'stolen') return loadMotos('STOLEN');
+      if (key === 'recovered') return loadMotos('RECOVERED');
+    }
+    async function loadMotos(status) {
+      document.getElementById('listErr').innerHTML = '';
+      document.getElementById('listBox').innerHTML = 'Chargement...';
+      show('list');
+      try {
+        let rows = await api('/admin/motorcycles');
+        if (!Array.isArray(rows)) rows = [];
+        if (status) rows = rows.filter(function (m) { return m.status === status; });
+        const title = status === 'STOLEN' ? 'Motos en recherche' : status === 'RECOVERED' ? 'Motos retrouvees' : 'Toutes les motos';
+        document.getElementById('listTitle').textContent = title + ' (' + rows.length + ')';
+        if (!rows.length) {
+          document.getElementById('listBox').innerHTML = '<p>Aucune moto dans cette liste.</p>';
+          return;
+        }
+        document.getElementById('listBox').innerHTML = '<table><tr><th>Moto</th><th>Plaque</th><th>Statut</th><th>Proprietaire</th><th>Id</th></tr>' +
+          rows.map(function (m) {
+            const owner = m.owner || {};
+            return '<tr><td><b>' + text(m.brand) + ' ' + text(m.model) + '</b><div>' + text(m.color) + '</div></td><td>' + text(m.plateNumber || '-') + '</td><td>' + text(m.status) + '</td><td>' + text(owner.fullName || '-') + '<div>' + text(owner.phone || '') + '</div></td><td><small>' + text(m.id) + '</small></td></tr>';
+          }).join('') + '</table>';
+      } catch (e) {
+        document.getElementById('listBox').innerHTML = '';
+        document.getElementById('listErr').innerHTML = '<div class="err">' + text(e.message) + '</div>';
+      }
+    }
+    async function openUser(id) {
+      document.getElementById('userErr').innerHTML = '';
+      document.getElementById('userBox').innerHTML = 'Chargement...';
+      show('userDetail');
+      try {
+        const u = await api('/admin/users/' + id);
+        const stats = u.stats || {};
+        document.getElementById('userTitle').textContent = text(u.fullName || u.phone);
+        const motos = (u.motorcycles || []).map(function (m) {
+          return '<tr><td>' + text(m.brand) + ' ' + text(m.model) + '</td><td>' + text(m.plateNumber || '-') + '</td><td>' + text(m.status) + '</td></tr>';
+        }).join('');
+        const reset = u.role === 'CITIZEN' ? '' : '<div class="card" style="margin-top:16px"><h3>Réinitialiser le mot de passe</h3><input id="resetPass" placeholder="Nouveau mot de passe temporaire (8 car. min)" /><button type="button" data-reset="' + u.id + '">Réinitialiser</button><p id="resetMsg"></p></div>';
+        document.getElementById('userBox').innerHTML =
+          '<div class="cards">' +
+          '<div class="card"><b>' + text(stats.motos || 0) + '</b>Motos</div>' +
+          '<div class="card"><b>' + text(stats.motosEnRecherche || 0) + '</b>En recherche</div>' +
+          '<div class="card"><b>' + text(stats.motosRetrouvees || 0) + '</b>Retrouvées</div>' +
+          '<div class="card"><b>' + text(stats.controles || 0) + '</b>Contrôles</div>' +
+          '</div>' +
+          '<div class="card" style="margin-top:16px">' +
+          '<p><b>Téléphone :</b> ' + text(u.phone) + '</p>' +
+          '<p><b>Rôle :</b> ' + text(u.role) + '</p>' +
+          '<p><b>Identifiant pro :</b> ' + text(u.professionalId || '-') + '</p>' +
+          '<p><b>Sexe :</b> ' + text(u.gender || 'Non renseigné') + '</p>' +
+          '<p><b>Date de naissance :</b> ' + text(u.dateOfBirth ? String(u.dateOfBirth).slice(0, 10) : 'Non renseignée') + '</p>' +
+          '<p><b>Service :</b> ' + text(u.serviceUnit || '-') + '</p>' +
+          '<p><b>Compte créé :</b> ' + text(u.createdAt) + '</p>' +
+          '<p><b>Changement de mot de passe forcé :</b> ' + (u.mustChangePassword ? 'Oui' : 'Non') + '</p>' +
+          '</div>' +
+          '<h3>Motos</h3>' +
+          (motos ? '<table><tr><th>Moto</th><th>Plaque</th><th>Statut</th></tr>' + motos + '</table>' : '<p>Aucune moto.</p>') +
+          reset;
+      } catch (e) {
+        document.getElementById('userBox').innerHTML = '';
+        document.getElementById('userErr').innerHTML = '<div class="err">' + text(e.message) + '</div>';
+      }
+    }
+    async function resetPassword(id) {
+      const value = document.getElementById('resetPass').value;
+      try {
+        const res = await api('/admin/users/' + id + '/reset-password', {
+          method: 'PATCH',
+          headers: headers(),
+          body: JSON.stringify({ temporaryPassword: value })
+        });
+        document.getElementById('resetMsg').textContent = res.message + ' Mot de passe : ' + res.temporaryPassword;
+      } catch (e) {
+        document.getElementById('resetMsg').textContent = e.message;
+      }
+    }
+    async function loadPending() {
+      show('pending');
+      try {
+        const rows = await api('/admin/theft-reports/pending');
+        document.getElementById('pendingBox').innerHTML = (rows || []).map(function (r) {
+          const moto = r.motorcycle || {};
+          return '<div class="card" style="margin-bottom:12px"><b>' + text(moto.brand) + ' ' + text(moto.model) + '</b><div>' + text(r.locationText) + '</div><button type="button" data-mod="' + r.id + '" data-act="VALIDATE">Valider</button> <button type="button" data-mod="' + r.id + '" data-act="REJECT">Rejeter</button></div>';
+        }).join('') || '<p>Aucun pending.</p>';
+      } catch (e) {
+        document.getElementById('pendingBox').innerHTML = '<div class="err">' + text(e.message) + '</div>';
+      }
+    }
+    async function loadAlerts() {
+      show('alerts');
+      try {
+        const rows = await api('/admin/alerts?unread=true');
+        document.getElementById('alertsBox').innerHTML = (rows || []).map(function (a) {
+          return '<div class="card" style="margin-bottom:12px"><b>' + text(a.title) + '</b><div>' + text(a.message) + '</div><button type="button" data-read="' + a.id + '">Marquer lu</button></div>';
+        }).join('') || '<p>Aucune alerte.</p>';
+      } catch (e) {
+        document.getElementById('alertsBox').innerHTML = '<div class="err">' + text(e.message) + '</div>';
+      }
+    }
+    async function loadUsers() {
+      show('users');
+      try {
+        const rows = await api('/admin/users');
+        document.getElementById('usersBox').innerHTML = '<table><tr><th>Nom</th><th>Tel</th><th>Role</th><th>Id pro</th><th></th></tr>' +
+          (rows || []).map(function (u) {
+            return '<tr><td>' + text(u.fullName) + '</td><td>' + text(u.phone) + '</td><td>' + text(u.role) + '</td><td>' + text(u.professionalId || '-') + '</td><td><button type="button" data-user="' + u.id + '">Voir</button></td></tr>';
+          }).join('') + '</table>';
+      } catch (e) {
+        document.getElementById('usersBox').innerHTML = '<div class="err">' + text(e.message) + '</div>';
+      }
+    }
+    document.body.addEventListener('click', function (ev) {
+      const t = ev.target.closest('button');
+      if (!t) return;
+      if (t.id === 'loginBtn') return login();
+      if (t.id === 'logoutBtn') return logout();
+      if (t.id === 'backBtn') return loadDash();
+      if (t.id === 'createBtn') return createAuthority();
+      if (t.dataset.go) return go(t.dataset.go);
+      if (t.dataset.mod) return moderate(t.dataset.mod, t.dataset.act);
+      if (t.dataset.read) return readAlert(t.dataset.read);
+      if (t.dataset.user) return openUser(t.dataset.user);
+      if (t.dataset.reset) return resetPassword(t.dataset.reset);
+    });
+    async function moderate(id, action) {
+      await api('/admin/theft-reports/' + id, { method: 'PATCH', headers: headers(), body: JSON.stringify({ action: action }) });
+      loadPending();
+    }
+    async function readAlert(id) {
+      await api('/admin/alerts/' + id + '/read', { method: 'PATCH', headers: headers() });
+      loadAlerts();
+    }
+    async function createAuthority() {
+      try {
+        await api('/admin/authorities', {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({
+            fullName: document.getElementById('aName').value,
+            professionalId: document.getElementById('aPro').value,
+            phone: document.getElementById('aPhone').value,
+            temporaryPassword: document.getElementById('aPass').value,
+            role: 'AUTHORITY'
+          })
+        });
+        document.getElementById('createMsg').textContent = 'Agent cree';
+        loadUsers();
+      } catch (e) {
+        document.getElementById('createMsg').textContent = e.message;
+      }
+    }
+    window.addEventListener('hashchange', function () {
+      const id = (location.hash || '#login').slice(1);
+      if (id === 'dash' || id === 'motos' || id === 'users' || id === 'pending' || id === 'alerts') go(id);
+    });
+    if (token) {
+      document.getElementById('nav').classList.remove('hidden');
+      loadDash();
+    }
+  </script>
+</body>
+</html>

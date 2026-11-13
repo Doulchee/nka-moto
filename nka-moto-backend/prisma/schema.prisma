@@ -1,0 +1,201 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CITIZEN
+  AUTHORITY
+  ADMIN
+}
+
+enum MotorcycleStatus {
+  REGISTERED
+  STOLEN
+  RECOVERED
+}
+
+enum TheftReportStatus {
+  PENDING
+  VALIDATED
+  REJECTED
+  CLOSED
+}
+
+enum ControlResult {
+  GREEN
+  RED
+}
+
+enum FileType {
+  INVOICE
+  REGISTRATION_CARD
+  MOTO_PHOTO
+  PHOTO_CHASSIS
+  LOSS_DECLARATION
+  OTHER
+}
+
+enum AlertType {
+  RE_REGISTRATION
+  SUSPICIOUS_REPORT
+  DECLARATION_MISSING
+  OTHER
+}
+
+model User {
+  id                 String    @id @default(uuid())
+  phone              String    @unique
+  fullName           String?
+  role               Role      @default(CITIZEN)
+  professionalId     String?   @unique
+  passwordHash       String?
+  mustChangePassword Boolean   @default(false)
+  isVerified         Boolean   @default(false)
+  dateOfBirth        DateTime?
+  gender             String?
+  serviceUnit        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  motorcycles  Motorcycle[]
+  theftReports TheftReport[]
+  controlLogs  ControlLog[]
+  files        File[]
+  alerts       AdminAlert[]  @relation("AlertTarget")
+}
+
+model Motorcycle {
+  id               String           @id @default(uuid())
+  ownerId          String
+  brand            String
+  model            String
+  color            String?
+  chassisNumber    String
+  chassisHash      String
+  plateNumber      String?
+  registrationYear Int?
+  status           MotorcycleStatus @default(REGISTERED)
+  adminVerified    Boolean          @default(false)
+  deletedAt        DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  owner        User          @relation(fields: [ownerId], references: [id])
+  theftReports TheftReport[]
+  controlLogs  ControlLog[]
+  files        File[]
+
+  @@index([chassisHash])
+  @@index([plateNumber])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model TheftReport {
+  id                    String            @id @default(uuid())
+  motorcycleId          String
+  reporterId            String
+  locationText          String?
+  latitude              Float?
+  longitude             Float?
+  theftDatetime         DateTime
+  description           String?
+  status                TheftReportStatus @default(PENDING)
+  isAutoValidated       Boolean           @default(false)
+  validatedById         String?
+  validatedAt           DateTime?
+  shareCode             String            @unique
+  closedAt              DateTime?
+  declarationDeadline   DateTime?
+  declarationUploadedAt DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  motorcycle Motorcycle @relation(fields: [motorcycleId], references: [id])
+  reporter   User       @relation(fields: [reporterId], references: [id])
+  files      File[]
+  sightings  Sighting[]
+
+  @@index([status])
+  @@index([shareCode])
+}
+
+model ControlLog {
+  id            String        @id @default(uuid())
+  authorityId   String
+  motorcycleId  String?
+  searchedValue String
+  result        ControlResult
+  locationText  String?
+  latitude      Float?
+  longitude     Float?
+  isOffline     Boolean       @default(false)
+  controlledAt  DateTime      @default(now())
+  syncedAt      DateTime?
+
+  authority  User         @relation(fields: [authorityId], references: [id])
+  motorcycle Motorcycle?  @relation(fields: [motorcycleId], references: [id])
+
+  @@index([authorityId])
+  @@index([controlledAt])
+}
+
+model File {
+  id            String   @id @default(uuid())
+  uploaderId    String
+  motorcycleId  String?
+  theftReportId String?
+  type          FileType
+  url           String
+  storagePath   String
+  mimeType      String?
+  sizeBytes     Int?
+  createdAt     DateTime @default(now())
+
+  uploader    User          @relation(fields: [uploaderId], references: [id])
+  motorcycle  Motorcycle?   @relation(fields: [motorcycleId], references: [id])
+  theftReport TheftReport?  @relation(fields: [theftReportId], references: [id])
+}
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  phone     String
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([phone])
+}
+
+model Sighting {
+  id            String   @id @default(uuid())
+  theftReportId String
+  message       String?
+  locationText  String?
+  latitude      Float?
+  longitude     Float?
+  photoUrl      String?
+  createdAt     DateTime @default(now())
+
+  theftReport TheftReport @relation(fields: [theftReportId], references: [id])
+}
+
+model AdminAlert {
+  id           String    @id @default(uuid())
+  type         AlertType
+  title        String
+  message      String
+  targetUserId String?
+  motorcycleId String?
+  isRead       Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+
+  targetUser User? @relation("AlertTarget", fields: [targetUserId], references: [id])
+}
